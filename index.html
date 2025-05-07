@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document Navigation</title>
+    <style>
+        body { margin: 0; padding: 0; }
+        #toolbar { padding: 10px; border-bottom: 1px solid #ccc; background: #fafafa; }
+        #toolbar button { margin-right: 10px; }
+        .container { display: flex; gap: 20px; padding: 20px; box-sizing: border-box; width: 100%; }
+        .panel { border: 1px solid #ccc; border-radius: 5px; padding: 10px; }
+        .panel h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+        .panel ul { list-style: none; padding: 0; }
+        .panel li { padding: 5px; }
+        .panel li.selected { background-color: #f0f0f0; }
+        .panel li:focus { background-color: #d0d0d0; outline: none; }
+        .panel[data-panel="chapters"], .panel[data-panel="sub-chapters"] { flex: 1; }
+        .panel[data-panel="paragraphs"] { flex: 2; }
+        .edit-input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button id="exportBtn">Export JSON</button>
+        <button id="importBtn">Import JSON</button>
+        <input type="file" id="importFileInput" accept="application/json" style="display:none" />
+    </div>
+    <div class="container">
+        <div class="panel" data-panel="chapters"><h3>Chapters</h3><ul></ul></div>
+        <div class="panel" data-panel="sub-chapters"><h3>Sub-chapters</h3><ul></ul></div>
+        <div class="panel" data-panel="paragraphs"><h3>Paragraphs</h3><ul></ul></div>
+    </div>
+    <script>
+        // Data model
+        const data = { chapters: [] };
+        if (!data.chapters.length) data.chapters.push({ name: "Chapter 1", subChapters: [] });
+
+        // State
+        const state = { chapter: 0, subChapter: {}, paragraph: {} };
+        let editing = false;
+        const panels = Array.from(document.querySelectorAll('.panel'));
+
+        // Render panel
+        function renderPanel(panel, items, selectedIndex = 0) {
+            const ul = panel.querySelector('ul'); ul.innerHTML = '';
+            items.forEach((item, idx) => {
+                const li = document.createElement('li');
+                li.textContent = item.name || item;
+                li.tabIndex = 0;
+                if (idx === selectedIndex) li.classList.add('selected');
+                ul.appendChild(li);
+            });
+        }
+        
+        // Update panels
+        function updateDependentPanels(panelIdx, selIdx) {
+            if (panelIdx === 0) {
+                state.chapter = selIdx;
+                const chap = data.chapters[selIdx];
+                renderPanel(panels[1], chap.subChapters, state.subChapter[selIdx] ?? 0);
+                const sc = state.subChapter[selIdx] ?? 0;
+                renderPanel(panels[2], chap.subChapters[sc]?.paragraphs || [], state.paragraph[`${selIdx}-${sc}`] ?? 0);
+            } else if (panelIdx === 1) {
+                state.subChapter[state.chapter] = selIdx;
+                const sub = data.chapters[state.chapter].subChapters[selIdx];
+                renderPanel(panels[2], sub.paragraphs, state.paragraph[`${state.chapter}-${selIdx}`] ?? 0);
+            }
+        }
+
+        // Focus
+        function focusOnPanel(panelIdx) {
+            const items = panels[panelIdx].querySelectorAll('li');
+            if (!items.length) return;
+            let idx;
+            if (panelIdx === 0) idx = state.chapter;
+            else if (panelIdx === 1) idx = state.subChapter[state.chapter] ?? 0;
+            else {
+                const sc = state.subChapter[state.chapter] ?? 0;
+                idx = state.paragraph[`${state.chapter}-${sc}`] ?? 0;
+            }
+            idx = Math.min(Math.max(0, idx), items.length - 1);
+            items[idx].focus();
+        }
+
+        // Export/Import
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'document.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+        document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFileInput').click());
+        document.getElementById('importFileInput').addEventListener('change', e => {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    const json = JSON.parse(ev.target.result);
+                    if (!Array.isArray(json.chapters)) throw 'Invalid JSON';
+                    data.chapters = json.chapters;
+                    state.chapter = 0; state.subChapter = {}; state.paragraph = {};
+                    renderPanel(panels[0], data.chapters, 0);
+                    updateDependentPanels(0, 0);
+                    focusOnPanel(0);
+                } catch (err) {
+                    alert('Failed to load JSON: ' + err);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Create new item on empty panel
+        function createNewItemInEmpty(panelIdx) {
+            if (panelIdx === 0) {
+                data.chapters.push({ name:`Chapter ${data.chapters.length+1}`, subChapters:[] });
+                state.chapter = data.chapters.length-1;
+                renderPanel(panels[0], data.chapters, state.chapter);
+                updateDependentPanels(0,state.chapter);
+            } else if (panelIdx === 1) {
+                const chap = data.chapters[state.chapter];
+                chap.subChapters.push({ name:`Sub-chapter ${chap.subChapters.length+1}`, paragraphs:[] });
+                state.subChapter[state.chapter] = chap.subChapters.length-1;
+                renderPanel(panels[1], chap.subChapters, state.subChapter[state.chapter]);
+                updateDependentPanels(1,state.subChapter[state.chapter]);
+            } else {
+                const chap = data.chapters[state.chapter];
+                const sc = state.subChapter[state.chapter] ?? 0;
+                const sub = chap.subChapters[sc];
+                sub.paragraphs.push(`Para ${sub.paragraphs.length+1}`);
+                const key = `${state.chapter}-${sc}`;
+                state.paragraph[key] = sub.paragraphs.length-1;
+                renderPanel(panels[2], sub.paragraphs, state.paragraph[key]);
+            }
+        }
+
+        // Delete item
+        function deleteItem(panelIdx) {
+            const panel = panels[panelIdx];
+            const lis = Array.from(panel.querySelectorAll('li'));
+            if (!lis.length) return;
+            const idx = lis.indexOf(document.activeElement);
+            if (!confirm('Delete this item?')) return;
+
+            if (panelIdx === 0) {
+                data.chapters.splice(idx,1);
+                if (!data.chapters.length) data.chapters.push({ name: "Chapter 1", subChapters: [] });
+                state.chapter = Math.max(0, state.chapter-1);
+                state.subChapter = {};
+                state.paragraph = {};
+                renderPanel(panels[0], data.chapters, state.chapter);
+                updateDependentPanels(0, state.chapter);
+                focusOnPanel(0);
+            } else if (panelIdx === 1) {
+                const chap = data.chapters[state.chapter];
+                chap.subChapters.splice(idx,1);
+                Object.keys(state.paragraph).forEach(key => { if (key.startsWith(`${state.chapter}-`)) delete state.paragraph[key]; });
+                if (chap.subChapters.length) {
+                    const newIdx = Math.max(0, (state.subChapter[state.chapter]||0)-1);
+                    state.subChapter[state.chapter] = newIdx;
+                    renderPanel(panels[1], chap.subChapters, newIdx);
+                    updateDependentPanels(1, newIdx);
+                    focusOnPanel(1);
+                } else {
+                    delete state.subChapter[state.chapter];
+                    renderPanel(panels[1], [], 0);
+                    renderPanel(panels[2], [], 0);
+                    focusOnPanel(0);
+                }
+            } else {
+                const chap = data.chapters[state.chapter];
+                const sc = state.subChapter[state.chapter] || 0;
+                const sub = chap.subChapters[sc];
+                sub.paragraphs.splice(idx,1);
+                const key = `${state.chapter}-${sc}`;
+                const newIdx = Math.max(0, (state.paragraph[key]||0)-1);
+                state.paragraph[key] = newIdx;
+                renderPanel(panels[2], sub.paragraphs, newIdx);
+                if (sub.paragraphs.length) focusOnPanel(2);
+                else focusOnPanel(1);
+            }
+        }
+
+        // Edit in place
+        function startEdit() {
+            const li = document.activeElement;
+            if (!li || li.tagName !== 'LI') return;
+            const panelIdx = panels.indexOf(li.closest('.panel'));
+            const lis = Array.from(li.parentNode.children);
+            const idx = lis.indexOf(li);
+            const text = li.textContent;
+            li.innerHTML = '';
+            const input = document.createElement('input');
+            input.type = 'text'; input.value = text;
+            input.className = 'edit-input';
+            input.dataset.panelIdx = panelIdx; input.dataset.index = idx;
+            li.appendChild(input); editing = true; li.classList.remove('selected');
+            input.focus(); input.setSelectionRange(text.length, text.length);
+        }
+        function commitEdit(input) {
+            const panelIdx = +input.dataset.panelIdx;
+            const idx = +input.dataset.index;
+            const newText = input.value;
+            if (panelIdx === 0) data.chapters[idx].name = newText;
+            else if (panelIdx === 1) data.chapters[state.chapter].subChapters[idx].name = newText;
+            else {
+                const sc = state.subChapter[state.chapter] || 0;
+                data.chapters[state.chapter].subChapters[sc].paragraphs[idx] = newText;
+            }
+            const li = input.parentNode;
+            li.innerHTML = newText; li.tabIndex = 0; li.classList.add('selected');
+            editing = false; li.focus();
+        }
+
+        // Add new item (ctrl+M)
+        function addNewItem() {
+            const focused = document.activeElement;
+            if (!focused || focused.tagName !== 'LI') return;
+            const panel = focused.closest('.panel');
+            const type = panel.dataset.panel;
+            const lis = Array.from(panel.querySelectorAll('li'));
+            const pos = lis.indexOf(focused);
+            let newLi;
+            if (type === 'chapters') {
+                data.chapters.splice(pos+1, 0, { name: `Chapter ${data.chapters.length+1}`, subChapters: [] });
+                renderPanel(panels[0], data.chapters, state.chapter);
+                newLi = panels[0].querySelectorAll('li')[pos+1];
+            } else if (type === 'sub-chapters') {
+                const chap = data.chapters[state.chapter];
+                chap.subChapters.splice(pos+1,0,{ name: `Sub-chapter ${chap.subChapters.length+1}`, paragraphs: [] });
+                renderPanel(panels[1], chap.subChapters, state.subChapter[state.chapter]);
+                newLi = panels[1].querySelectorAll('li')[pos+1];
+            } else {
+                const chap = data.chapters[state.chapter];
+                const sc = state.subChapter[state.chapter]||0;
+                const sub = chap.subChapters[sc];
+                sub.paragraphs.splice(pos+1,0, `Para ${sub.paragraphs.length+1}`);
+                const key = `${state.chapter}-${sc}`;
+                renderPanel(panels[2], sub.paragraphs, state.paragraph[key]);
+                newLi = panels[2].querySelectorAll('li')[pos+1];
+            }
+            newLi?.focus();
+        }
+
+        // Move item up or down
+        function moveItem(offset) {
+    const activeEl = document.activeElement;
+    const panel = activeEl.closest('.panel');
+    if (!panel) return;
+
+    console.log('--- moveItem ---');
+    console.log('Active element text:', activeEl.tagName === 'LI' ? activeEl.textContent : 'Not an LI');
+
+    const panelIdx = panels.indexOf(panel);
+    const lis = Array.from(panel.querySelectorAll('li'));
+    const currentIdx = lis.indexOf(activeEl);
+
+    console.log('Panel index:', panelIdx, 'Current item index:', currentIdx);
+    if (currentIdx === -1) {
+        console.log('No item focused, exiting.');
+        return;
+    }
+
+    let items;
+    let currentItemName; // For logging
+    if (panelIdx === 0) {
+        items = data.chapters;
+        currentItemName = items[currentIdx]?.name;
+    } else if (panelIdx === 1) {
+        items = data.chapters[state.chapter].subChapters;
+        currentItemName = items[currentIdx]?.name;
+    } else {
+        items = data.chapters[state.chapter].subChapters[state.subChapter[state.chapter] ?? 0].paragraphs;
+        currentItemName = items[currentIdx];
+    }
+    console.log('Current item content:', currentItemName);
+
+
+    const targetIdx = currentIdx + offset;
+    console.log('Target index:', targetIdx);
+
+    if (targetIdx < 0 || targetIdx >= items.length) {
+        console.log('Target index out of bounds, exiting.');
+        return;
+    }
+
+    const targetItemName = (panelIdx === 2) ? items[targetIdx] : items[targetIdx]?.name; // For logging
+    console.log('Item to swap with:', targetItemName);
+
+    // Swap items in the data model
+    [items[currentIdx], items[targetIdx]] = [items[targetIdx], items[currentIdx]];
+    console.log('Items swapped in data model.');
+
+    // Update state to reflect new selection
+    if (panelIdx === 0) state.chapter = targetIdx;
+    else if (panelIdx === 1) state.subChapter[state.chapter] = targetIdx;
+    else {
+        const sc = state.subChapter[state.chapter] ?? 0;
+        state.paragraph[`${state.chapter}-${sc}`] = targetIdx;
+    }
+    console.log('State updated to select target index:', targetIdx);
+
+    // Re-render the panel with the new selected index
+    renderPanel(panel, items, targetIdx);
+    console.log('Panel re-rendered.');
+    if (panelIdx === 0 || panelIdx === 1) updateDependentPanels(panelIdx, targetIdx);
+
+    // Focus the moved item
+    const updatedLis = panel.querySelectorAll('li');
+    if (updatedLis[targetIdx]) {
+        updatedLis[targetIdx].focus();
+        console.log('Focused item at new target index:', updatedLis[targetIdx].textContent);
+    } else {
+        console.error('Could not find item to focus at target index:', targetIdx);
+    }
+    console.log('--- end moveItem ---');
+}
+
+        // Listeners
+        panels.forEach((panel, i) => panel.addEventListener('focusin', e => {
+            if (e.target.tagName !== 'LI') return;
+            const lis = Array.from(panel.querySelectorAll('li'));
+            const idx = lis.indexOf(e.target);
+            if (i === 0) state.chapter = idx;
+            else if (i === 1) state.subChapter[state.chapter] = idx;
+            else state.paragraph[`${state.chapter}-${state.subChapter[state.chapter]||0}`] = idx;
+            lis.forEach((li,j) => li.classList.toggle('selected', j===idx));
+            updateDependentPanels(i, idx);
+        }));
+
+        // Promote item
+        function promoteItem() {
+            const li = document.activeElement;
+            if (!li || li.tagName!=='LI') return;
+            const pIdx = panels.indexOf(li.closest('.panel'));
+            const lis  = Array.from(li.parentNode.children);
+            const i    = lis.indexOf(li);
+
+            if (pIdx === 2) {
+                const chap = data.chapters[state.chapter];
+                const sc   = state.subChapter[state.chapter] || 0;
+                const subs = chap.subChapters[sc];
+                const text = subs.paragraphs.splice(i,1)[0];
+                const newSub = { name: text, paragraphs: [] };
+                chap.subChapters.splice(sc+1, 0, newSub);
+                state.subChapter[state.chapter] = sc+1;
+                renderPanel(panels[1], chap.subChapters, sc+1);
+                updateDependentPanels(1, sc+1);
+                focusOnPanel(1);
+            } else if (pIdx === 1) {
+                const chapArr = data.chapters;
+                const subs    = data.chapters[state.chapter].subChapters;
+                const subObj  = subs.splice(i,1)[0];
+                const newChap = { name: subObj.name, subChapters: [] };
+                chapArr.splice(state.chapter+1, 0, newChap);
+                state.chapter = state.chapter+1;
+                renderPanel(panels[0], chapArr, state.chapter);
+                updateDependentPanels(0, state.chapter);
+                focusOnPanel(0);
+            }
+        }
+
+        // Demote item
+        function demoteItem() {
+            const li = document.activeElement;
+            if (!li || li.tagName!=='LI') return;
+            const pIdx = panels.indexOf(li.closest('.panel'));
+            const lis  = Array.from(li.parentNode.children);
+            const i    = lis.indexOf(li);
+
+            if (pIdx === 1) {
+                const chap = data.chapters[state.chapter];
+                const subs = chap.subChapters;
+                const sub  = subs.splice(i,1)[0];
+                let targetSC = i > 0 ? i - 1 : 0;
+
+                if (i === 0 && subs.length === 0) {
+                    subs.unshift({ name: 'Sub-chapter 1', paragraphs: [] });
+                    targetSC = 0;
+                } else if (subs.length === 0) {
+                    subs.push({ name: 'Sub-chapter 1', paragraphs: [] });
+                    targetSC = 0;
+                } else if (i <= targetSC) {
+                    targetSC = Math.max(0, targetSC - 1);
+                }
+
+                const receiver = chap.subChapters[targetSC];
+                receiver.paragraphs.push(sub.name);
+                const newParagraphIndex = receiver.paragraphs.length - 1;
+
+                state.subChapter[state.chapter] = targetSC;
+                state.paragraph[`${state.chapter}-${targetSC}`] = newParagraphIndex;
+
+                renderPanel(panels[1], chap.subChapters, targetSC);
+                renderPanel(panels[2], receiver.paragraphs, newParagraphIndex);
+                focusOnPanel(2);
+            } else if (pIdx === 0) {
+                const chapArr = data.chapters;
+                const chapObj = chapArr.splice(i,1)[0];
+                const parentIdx = i>0 ? i-1 : 0;
+                const parent    = chapArr[parentIdx];
+                parent.subChapters.push({ name: chapObj.name, paragraphs: [] });
+                state.chapter = parentIdx;
+                state.subChapter[parentIdx] = parent.subChapters.length - 1;
+                renderPanel(panels[0], chapArr, parentIdx);
+                updateDependentPanels(0, parentIdx);
+                focusOnPanel(1);
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            if (editing && e.key === 'Enter') { e.preventDefault(); commitEdit(document.activeElement); return; }
+            if (!editing && e.key === 'Enter') { e.preventDefault(); startEdit(); return; }
+            // Ctrl+Backspace for delete should ideally be checked before plain ArrowKeys if Backspace could be an arrow key (it can't)
+            // but it's good practice to keep specific Ctrl+Key combos separate or clearly delineated.
+            if (e.ctrlKey && e.key === 'Backspace') { e.preventDefault(); deleteItem(panels.indexOf(document.activeElement.closest('.panel'))); return; }
+            if (e.ctrlKey && e.key.toLowerCase() === 'm') { e.preventDefault(); addNewItem(); return; }
+
+            // Handle Ctrl + specific keys first
+            if (e.ctrlKey) {
+                if (e.key === 'ArrowUp') { e.preventDefault(); moveItem(-1); return; }
+                if (e.key === 'ArrowDown') { e.preventDefault(); moveItem(1); return; }
+                if (e.key === 'ArrowLeft') { e.preventDefault(); promoteItem(); return; }
+                if (e.key === 'ArrowRight') { e.preventDefault(); demoteItem(); return; }
+                // Add other Ctrl+Key combinations here if any
+                // If it was a Ctrl+Key combination handled above, we've returned.
+                // If it's a Ctrl+Key not handled (e.g., Ctrl+C), allow default or fall through if necessary.
+            } else if (e.key === 'Tab') { // Tab without Ctrl
+                e.preventDefault();
+                const shift = e.shiftKey;
+                const current = document.activeElement.closest('.panel'); if (!current) return;
+                const idx = panels.indexOf(current);
+                const next = (idx + (shift?-1:1) + panels.length) % panels.length;
+                const lis = panels[next].querySelectorAll('li');
+                if (!lis.length) createNewItemInEmpty(next);
+                focusOnPanel(next);
+                return;
+            } else if (['ArrowUp','ArrowDown'].includes(e.key)) { // Arrow keys WITHOUT Ctrl
+                e.preventDefault();
+                const panel = document.activeElement.closest('.panel'); if (!panel) return;
+                const lis = Array.from(panel.querySelectorAll('li'));
+                const idx = lis.indexOf(document.activeElement);
+                if (idx < 0) return; // Should not happen if an LI is focused
+                const ni = Math.max(0, Math.min(lis.length-1, idx + (e.key==='ArrowUp'?-1:1)));
+                if (idx !== ni) { // Only focus if the index actually changes
+                    lis[ni].focus();
+                }
+                return; // Make sure to return after handling plain arrow keys
+            }
+
+            // Other non-Ctrl keydowns can be handled below if needed
+        });
+
+        // Initial
+        renderPanel(panels[0], data.chapters, state.chapter);
+        focusOnPanel(0);
+        updateDependentPanels(0, state.chapter);
+    </script>
+</body>
+</html>

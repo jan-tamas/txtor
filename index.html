@@ -1,8 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document Navigation</title>
     <style>
         body { margin: 0; padding: 0; }
@@ -24,12 +22,12 @@
     <div id="toolbar">
         <button id="exportBtn">Export JSON</button>
         <button id="importBtn">Import JSON</button>
-        <input type="file" id="importFileInput" accept="application/json" style="display:none" />
+        <input type="file" id="importFileInput" accept="application/json" style="display:none">
     </div>
     <div class="container">
-        <div class="panel" data-panel="chapters"><h3>Chapters</h3><ul></ul></div>
-        <div class="panel" data-panel="sub-chapters"><h3>Sub-chapters</h3><ul></ul></div>
-        <div class="panel" data-panel="paragraphs"><h3>Paragraphs</h3><ul></ul></div>
+        <div class="panel" data-panel="chapters"><h3>Chapters</h3><ul><li tabindex="0" class="selected">Chapter 1</li></ul></div>
+        <div class="panel" data-panel="sub-chapters"><h3>Sub-chapters</h3><ul><li tabindex="0" class="selected">Sub-chapter 1</li></ul></div>
+        <div class="panel" data-panel="paragraphs"><h3>Paragraphs</h3><ul tabindex="0" class="selected"><li tabindex="0">Test</li><li tabindex="0" class="selected">Test 2</li><li tabindex="0">This is nice</li><li tabindex="0">Why?</li><li tabindex="0"></li><li tabindex="0">sdf</li><li tabindex="0"></li><li tabindex="0">sdf</li><li tabindex="0"></li><li tabindex="0">sdf</li><li tabindex="0"></li><li tabindex="0">sdf</li><li tabindex="0"></li><li tabindex="0"></li><li tabindex="0"></li></ul></div>
     </div>
     <script>
         // Data model
@@ -46,7 +44,8 @@
             const ul = panel.querySelector('ul'); ul.innerHTML = '';
             items.forEach((item, idx) => {
                 const li = document.createElement('li');
-                li.textContent = item.name || item;
+                // Handle empty strings for paragraphs to avoid displaying "0", keep empty if string is empty
+                li.textContent = (typeof item === 'string') ? item : (item.name || '[Unnamed Item]');
                 li.tabIndex = 0;
                 if (idx === selectedIndex) li.classList.add('selected');
                 ul.appendChild(li);
@@ -129,10 +128,25 @@
                 const chap = data.chapters[state.chapter];
                 const sc = state.subChapter[state.chapter] ?? 0;
                 const sub = chap.subChapters[sc];
-                sub.paragraphs.push(`Para ${sub.paragraphs.length+1}`);
+                const wasEmpty = sub.paragraphs.length === 0;
+                sub.paragraphs.push("");
                 const key = `${state.chapter}-${sc}`;
                 state.paragraph[key] = sub.paragraphs.length-1;
                 renderPanel(panels[2], sub.paragraphs, state.paragraph[key]);
+                if (wasEmpty) {
+                    const newParagraphLi = panels[2].querySelector('li');
+                    if (newParagraphLi) {
+                        newParagraphLi.focus();
+                        startEdit();
+                        // Use a small delay to ensure the input field is focused after DOM update
+                        setTimeout(() => {
+                            const input = newParagraphLi.querySelector('input');
+                            if (input) {
+                                input.focus();
+                            }
+                        }, 0);
+                    }
+                }
             }
         }
 
@@ -196,8 +210,13 @@
             input.type = 'text'; input.value = text;
             input.className = 'edit-input';
             input.dataset.panelIdx = panelIdx; input.dataset.index = idx;
-            li.appendChild(input); editing = true; li.classList.remove('selected');
-            input.focus(); input.setSelectionRange(text.length, text.length);
+            li.appendChild(input);
+            editing = true;
+            li.classList.remove('selected');
+            // Reset the editing flag if the user exits the input without committing
+            input.addEventListener('blur', () => { editing = false; });
+            input.focus();
+            input.setSelectionRange(text.length, text.length);
         }
         function commitEdit(input) {
             const panelIdx = +input.dataset.panelIdx;
@@ -236,7 +255,7 @@
                 const chap = data.chapters[state.chapter];
                 const sc = state.subChapter[state.chapter]||0;
                 const sub = chap.subChapters[sc];
-                sub.paragraphs.splice(pos+1,0, `Para ${sub.paragraphs.length+1}`);
+                sub.paragraphs.splice(pos+1,0, "");
                 const key = `${state.chapter}-${sc}`;
                 renderPanel(panels[2], sub.paragraphs, state.paragraph[key]);
                 newLi = panels[2].querySelectorAll('li')[pos+1];
@@ -411,7 +430,46 @@
         }
 
         document.addEventListener('keydown', e => {
-            if (editing && e.key === 'Enter') { e.preventDefault(); commitEdit(document.activeElement); return; }
+            /* While editing, allow ArrowUp / ArrowDown to commit the current edit,
+               move to the previous/next item, and immediately enter edit mode there. */
+            if (editing && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                e.preventDefault();
+                const input = document.activeElement;
+                if (input && input.tagName === 'INPUT') {
+                    const li = input.parentElement;
+                    const panel = li.closest('.panel');
+                    const lis = Array.from(panel.querySelectorAll('li'));
+                    const idx = lis.indexOf(li);
+                    const offset = e.key === 'ArrowUp' ? -1 : 1;
+                    const targetIdx = idx + offset;
+
+                    // Commit edit and, if within bounds, move focus & re-enter edit mode
+                    if (targetIdx >= 0 && targetIdx < lis.length) {
+                        const targetLi = lis[targetIdx];
+                        commitEdit(input);
+                        targetLi.focus();
+                        startEdit();
+                    } else {
+                        // Out of bounds – just commit the edit and exit edit mode
+                        commitEdit(input);
+                    }
+                }
+                return;
+            }
+            if (editing && e.key === 'Enter') {
+                const activeEl = document.activeElement;
+                // Only commit if the focused element is the in-place edit input
+                if (activeEl && activeEl.tagName === 'INPUT') {
+                    e.preventDefault();
+                    const panelIdx = +activeEl.dataset.panelIdx;
+                    commitEdit(activeEl);
+                    if (panelIdx === 2) { // Paragraph panel
+                        addNewItem();
+                        startEdit();
+                    }
+                }
+                return;
+            }
             if (!editing && e.key === 'Enter') { e.preventDefault(); startEdit(); return; }
             // Ctrl+Backspace for delete should ideally be checked before plain ArrowKeys if Backspace could be an arrow key (it can't)
             // but it's good practice to keep specific Ctrl+Key combos separate or clearly delineated.
@@ -434,7 +492,12 @@
                 const idx = panels.indexOf(current);
                 const next = (idx + (shift?-1:1) + panels.length) % panels.length;
                 const lis = panels[next].querySelectorAll('li');
-                if (!lis.length) createNewItemInEmpty(next);
+                if (!lis.length) {
+                    createNewItemInEmpty(next);
+                    // If an empty panel just created a new item and entered edit mode,
+                    // keep focus on that new input instead of stealing it.
+                    if (editing) return;
+                }
                 focusOnPanel(next);
                 return;
             } else if (['ArrowUp','ArrowDown'].includes(e.key)) { // Arrow keys WITHOUT Ctrl
@@ -458,5 +521,6 @@
         focusOnPanel(0);
         updateDependentPanels(0, state.chapter);
     </script>
-</body>
-</html>
+
+
+</body></html>

@@ -15,7 +15,7 @@
         .panel li:focus { background-color: #d0d0d0; outline: none; }
         .panel[data-panel="chapters"], .panel[data-panel="sub-chapters"] { flex: 1; }
         .panel[data-panel="paragraphs"] { flex: 2; }
-        .edit-input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px; }
+        .edit-input { width: 100%; box-sizing: border-box; font: inherit; padding: 4px; border-width: 1px; border-style: solid; border-color: #ccc; appearance: none; }
     </style>
 </head>
 <body>
@@ -491,7 +491,8 @@
 
             // Ctrl/Cmd+Backspace for delete, Ctrl/Cmd+M for new item
             if (modifierKeyPressed && e.key === 'Backspace') { e.preventDefault(); deleteItem(panels.indexOf(document.activeElement.closest('.panel'))); return; }
-            if (modifierKeyPressed && (e.key.toLowerCase() === 'm' || e.key === 'Enter')) { e.preventDefault(); addNewItem(); return; }
+            if (modifierKeyPressed && e.key.toLowerCase() === 'm') { e.preventDefault(); addNewItem(); return; }
+            if (modifierKeyPressed && e.key === 'Enter') { e.preventDefault(); addNewItem(); startEdit(); return; }
 
             // Handle Ctrl/Cmd + arrow keys for navigation/manipulation
             if (modifierKeyPressed) { // This condition now uses modifierKeyPressed

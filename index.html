@@ -208,31 +208,38 @@
             const idx = lis.indexOf(li);
             const text = li.textContent;
             li.innerHTML = '';
-            const input = document.createElement('input');
-            input.type = 'text'; input.value = text;
-            input.className = 'edit-input';
-            input.dataset.panelIdx = panelIdx; input.dataset.index = idx;
-            li.appendChild(input);
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.className = 'edit-input';
+            textarea.dataset.panelIdx = panelIdx;
+            textarea.dataset.index = idx;
+            li.appendChild(textarea);
             editing = true;
             li.classList.remove('selected');
-            // Reset the editing flag if the user exits the input without committing
-            input.addEventListener('blur', () => { editing = false; });
-            input.focus();
-            input.setSelectionRange(text.length, text.length);
+            // Commit edit and reset the editing flag if the user exits the textarea
+            textarea.addEventListener('blur', () => {
+                commitEdit(textarea);
+                editing = false;
+            });
+            textarea.focus();
+            textarea.setSelectionRange(text.length, text.length);
         }
-        function commitEdit(input) {
-            const panelIdx = +input.dataset.panelIdx;
-            const idx = +input.dataset.index;
-            const newText = input.value;
+        function commitEdit(textarea) {
+            const panelIdx = +textarea.dataset.panelIdx;
+            const idx = +textarea.dataset.index;
+            const newText = textarea.value;
             if (panelIdx === 0) data.chapters[idx].name = newText;
             else if (panelIdx === 1) data.chapters[state.chapter].subChapters[idx].name = newText;
             else {
                 const sc = state.subChapter[state.chapter] || 0;
                 data.chapters[state.chapter].subChapters[sc].paragraphs[idx] = newText;
             }
-            const li = input.parentNode;
-            li.innerHTML = newText; li.tabIndex = 0; li.classList.add('selected');
-            editing = false; li.focus();
+            const li = textarea.parentNode;
+            li.innerHTML = newText;
+            li.tabIndex = 0;
+            li.classList.add('selected');
+            editing = false;
+            li.focus();
         }
 
         // Add new item (ctrl+M)
@@ -436,9 +443,9 @@
                move to the previous/next item, and immediately enter edit mode there. */
             if (editing && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
                 e.preventDefault();
-                const input = document.activeElement;
-                if (input && input.tagName === 'INPUT') {
-                    const li = input.parentElement;
+                const activeEl = document.activeElement;
+                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+                    const li = activeEl.parentElement;
                     const panel = li.closest('.panel');
                     const lis = Array.from(panel.querySelectorAll('li'));
                     const idx = lis.indexOf(li);
@@ -448,37 +455,34 @@
                     // Commit edit and, if within bounds, move focus & re-enter edit mode
                     if (targetIdx >= 0 && targetIdx < lis.length) {
                         const targetLi = lis[targetIdx];
-                        commitEdit(input);
+                        commitEdit(activeEl);
                         targetLi.focus();
                         startEdit();
                     } else {
                         // Out of bounds – just commit the edit and exit edit mode
-                        commitEdit(input);
+                        commitEdit(activeEl);
                     }
                 }
                 return;
             }
-            if (editing && e.key === 'Enter') {
-                const activeEl = document.activeElement;
-                // Only commit if the focused element is the in-place edit input
-                if (activeEl && activeEl.tagName === 'INPUT') {
-                    e.preventDefault();
-                    const panelIdx = +activeEl.dataset.panelIdx;
-                    commitEdit(activeEl);
-                    if (panelIdx === 2) { // Paragraph panel
-                        addNewItem();
-                        startEdit();
-                    }
-                }
-                return;
-            }
-            if (!editing && e.key === 'Enter') { e.preventDefault(); startEdit(); return; }
             // Define the modifier key based on the OS
             const modifierKeyPressed = isMac ? e.metaKey : e.ctrlKey;
 
+            if (editing && e.key === 'Enter') {
+                const activeEl = document.activeElement;
+                // Only commit if the focused element is the in-place edit input or textarea
+                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+                    e.preventDefault();
+                    const panelIdx = +activeEl.dataset.panelIdx;
+                    commitEdit(activeEl);
+                }
+                return;
+            }
+            if (!editing && e.key === 'Enter' && !modifierKeyPressed) { e.preventDefault(); startEdit(); return; }
+
             // Ctrl/Cmd+Backspace for delete, Ctrl/Cmd+M for new item
             if (modifierKeyPressed && e.key === 'Backspace') { e.preventDefault(); deleteItem(panels.indexOf(document.activeElement.closest('.panel'))); return; }
-            if (modifierKeyPressed && e.key.toLowerCase() === 'm') { e.preventDefault(); addNewItem(); return; }
+            if (modifierKeyPressed && (e.key.toLowerCase() === 'm' || e.key === 'Enter')) { e.preventDefault(); addNewItem(); return; }
 
             // Handle Ctrl/Cmd + arrow keys for navigation/manipulation
             if (modifierKeyPressed) { // This condition now uses modifierKeyPressed
@@ -515,6 +519,21 @@
                     lis[ni].focus();
                 }
                 return; // Make sure to return after handling plain arrow keys
+            } else if (!editing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { // Arrow keys WITHOUT Ctrl, not editing
+                e.preventDefault();
+                const current = document.activeElement.closest('.panel'); if (!current) return;
+                const idx = panels.indexOf(current);
+                const offset = e.key === 'ArrowLeft' ? -1 : 1;
+                const next = (idx + offset + panels.length) % panels.length;
+                const lis = panels[next].querySelectorAll('li');
+                if (!lis.length) {
+                    createNewItemInEmpty(next);
+                    // If an empty panel just created a new item and entered edit mode,
+                    // keep focus on that new input instead of stealing it.
+                    if (editing) return;
+                }
+                focusOnPanel(next);
+                return;
             }
 
             // Other non-Ctrl keydowns can be handled below if needed

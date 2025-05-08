@@ -39,6 +39,8 @@
         let editing = false;
         const panels = Array.from(document.querySelectorAll('.panel'));
 
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+
         // Render panel
         function renderPanel(panel, items, selectedIndex = 0) {
             const ul = panel.querySelector('ul'); ul.innerHTML = '';
@@ -471,21 +473,23 @@
                 return;
             }
             if (!editing && e.key === 'Enter') { e.preventDefault(); startEdit(); return; }
-            // Ctrl+Backspace for delete should ideally be checked before plain ArrowKeys if Backspace could be an arrow key (it can't)
-            // but it's good practice to keep specific Ctrl+Key combos separate or clearly delineated.
-            if (e.ctrlKey && e.key === 'Backspace') { e.preventDefault(); deleteItem(panels.indexOf(document.activeElement.closest('.panel'))); return; }
-            if (e.ctrlKey && e.key.toLowerCase() === 'm') { e.preventDefault(); addNewItem(); return; }
+            // Define the modifier key based on the OS
+            const modifierKeyPressed = isMac ? e.metaKey : e.ctrlKey;
 
-            // Handle Ctrl + specific keys first
-            if (e.ctrlKey) {
+            // Ctrl/Cmd+Backspace for delete, Ctrl/Cmd+M for new item
+            if (modifierKeyPressed && e.key === 'Backspace') { e.preventDefault(); deleteItem(panels.indexOf(document.activeElement.closest('.panel'))); return; }
+            if (modifierKeyPressed && e.key.toLowerCase() === 'm') { e.preventDefault(); addNewItem(); return; }
+
+            // Handle Ctrl/Cmd + arrow keys for navigation/manipulation
+            if (modifierKeyPressed) { // This condition now uses modifierKeyPressed
                 if (e.key === 'ArrowUp') { e.preventDefault(); moveItem(-1); return; }
                 if (e.key === 'ArrowDown') { e.preventDefault(); moveItem(1); return; }
                 if (e.key === 'ArrowLeft') { e.preventDefault(); promoteItem(); return; }
                 if (e.key === 'ArrowRight') { e.preventDefault(); demoteItem(); return; }
-                // Add other Ctrl+Key combinations here if any
-                // If it was a Ctrl+Key combination handled above, we've returned.
-                // If it's a Ctrl+Key not handled (e.g., Ctrl+C), allow default or fall through if necessary.
-            } else if (e.key === 'Tab') { // Tab without Ctrl
+                // Add other Ctrl/Cmd+Key combinations here if any
+                // If it was a Ctrl/Cmd+Key combination handled above, we've returned.
+                // If it's a Ctrl/Cmd+Key not handled (e.g., Ctrl+C), allow default or fall through if necessary.
+            } else if (e.key === 'Tab') { // Tab without Ctrl/Cmd
                 e.preventDefault();
                 const shift = e.shiftKey;
                 const current = document.activeElement.closest('.panel'); if (!current) return;

@@ -213,6 +213,12 @@
             textarea.className = 'edit-input';
             textarea.dataset.panelIdx = panelIdx;
             textarea.dataset.index = idx;
+            // Set initial height and add input event listener for auto-resize
+            textarea.style.minHeight = '1.2em'; // Match li height
+            textarea.addEventListener('input', () => {
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+            });
             li.appendChild(textarea);
             editing = true;
             li.classList.remove('selected');
@@ -223,6 +229,9 @@
             });
             textarea.focus();
             textarea.setSelectionRange(text.length, text.length);
+            // Adjust height immediately after focusing, in case there's pre-filled content
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
         }
         function commitEdit(textarea) {
             const panelIdx = +textarea.dataset.panelIdx;
